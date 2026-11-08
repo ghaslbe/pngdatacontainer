@@ -26,14 +26,25 @@ PNG_OUT="${4:-${PNG_IN%.png}_packed.png}"
 [ -f "$PNG_IN" ] || { echo "Fehler: Bild '$PNG_IN' nicht gefunden." >&2; exit 1; }
 
 TMPZIP="$(mktemp -t packzip).zip"
-trap 'rm -f "$TMPZIP"' EXIT
+TMPPNG="$(mktemp -t packpng).png"
+trap 'rm -f "$TMPZIP" "$TMPPNG"' EXIT
 
-echo "[1/2] ZIP erstellen (passwortgeschützt) ..."
+# Träger-Bild zuerst verlustfrei optimieren (vor dem Einbetten!).
+# optipng mit -strip wuerde den Chunk sonst nachtraeglich entfernen.
+cp "$PNG_IN" "$TMPPNG"
+if command -v optipng >/dev/null 2>&1; then
+  echo "[1/3] PNG optimieren (optipng) ..."
+  optipng -o7 -strip all -quiet "$TMPPNG" || true
+else
+  echo "[1/3] optipng nicht gefunden – Optimierung uebersprungen."
+fi
+
+echo "[2/3] ZIP erstellen (passwortgeschützt) ..."
 # -r rekursiv, -e verschlüsselt, -P Passwort, -q leise
 zip -r -q -e -P "$PASS" "$TMPZIP" "$SRC"
 
-echo "[2/2] ZIP als PNG-Chunk anhängen ..."
-PNG_IN="$PNG_IN" TMPZIP="$TMPZIP" PNG_OUT="$PNG_OUT" python3 -I - <<'PY'
+echo "[3/3] ZIP als PNG-Chunk anhängen ..."
+PNG_IN="$TMPPNG" TMPZIP="$TMPZIP" PNG_OUT="$PNG_OUT" python3 -I - <<'PY'
 import os, struct, zlib
 png_in, payload_path, png_out = os.environ["PNG_IN"], os.environ["TMPZIP"], os.environ["PNG_OUT"]
 png = open(png_in, "rb").read()
